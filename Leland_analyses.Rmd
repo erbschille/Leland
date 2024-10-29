@@ -1,6 +1,6 @@
 ---
 title: 'Sensing Invisible Others: The Case of Leland Stanford Junior'
-author: "BLINDED"
+author: "Eleanor Schille-Hudson" 
 date: "2024-10-23"
 output:
   html_document:

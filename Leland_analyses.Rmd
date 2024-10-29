@@ -1,0 +1,460 @@
+---
+title: 'Sensing Invisible Others: The Case of Leland Stanford Junior'
+author: "BLINDED"
+date: "2024-10-23"
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+    toc_float: yes
+  html_notebook:
+    toc: yes
+    toc_float: yes
+  word_document:
+    toc: yes
+---
+
+```{r global_options, include = F}
+#setting up file
+knitr::opts_chunk$set(echo=F, warning=F, cache=F, message=F)
+```
+
+```{r}
+# loading necessary packages
+library(tidyverse)
+library(readxl)
+library(ggpubr)
+library(rstatix)
+library(lme4)
+library(lmerTest)
+library(parameters)
+library(ggsignif)
+library(RColorBrewer)
+```
+
+These are the analyses which accompany the paper Sensing invisible others: the case of Leland Stanford Junior. Running this RMarkdown file will produce the results and plots reported in the manuscript. 
+
+# Study 1 
+
+```{r}
+# loading data study 1
+s1 <- read_excel("leland_study1.xlsx", sheet = "study1_cleaned") %>%
+   mutate(Age = as.numeric(Age))
+```
+
+## Cleaning & Organizing
+
+```{r}
+# creating key 
+key_s1 <- s1 %>% slice(1) %>% 
+  mutate(across(everything(), as.character)) %>%
+  pivot_longer(everything(), names_to = "qualtrics_question", values_to = "label")
+
+# removing that first row from s1
+s1 <- s1[-1,]
+
+# filtering out people who didn't answer one (or more) of the sets of questions
+# this leaves us with 30 participants
+s1 <- s1 %>% subset(!(IndivID %in% c(1103, 1257, 1699, 1785))) 
+```
+
+```{r}
+# making absorption and Leland scores 
+s1 <- s1 %>% 
+  mutate(across((S1_Q10:S3_Q5_12), as.numeric)) %>% # making everything numeric again, many variables character type from labels
+  mutate(absorption_score = rowSums(across(S1_Q10:S1_Q43), na.rm = T), # calculating absorption scores by summing
+         leland_lecture_score = rowSums(across(c(S2_Q3_1:S2_Q3_5, S2_Q5_1:S2_Q5_8, S2_Q5_10, S2_Q5_12)), na.rm = T), # summing Leland lecture qs
+         leland_tracks_score = rowSums(across(c(S3_Q3_1:S3_Q3_5, S3_Q5_1:S3_Q5_8, S2_Q5_10, S2_Q5_12)), na.rm = T)) #summing Leland tracks qs
+```
+
+```{r}
+# making a dataframe where all responses are scaled from 0-1
+s1_scaled <- s1 %>% mutate(across(c(S2_Q3_1:S2_Q3_5, S2_Q5_1:S2_Q5_8, S2_Q5_10, S2_Q5_12), ~./7),
+                           S2_Q4_1 = (S2_Q4_1 - 1)/9,
+                           across(c(S3_Q3_1:S3_Q3_5, S3_Q5_1:S3_Q5_8, S2_Q5_10, S2_Q5_12), ~./7),
+                           S3_Q4_1 = (S3_Q4_1 - 1)/9)
+
+# summing scaled Leland scores
+s1_scaled <- s1_scaled %>%
+  mutate(leland_lecture_score_scaled = rowSums(across(c(S2_Q3_1:S2_Q3_5, S2_Q5_1:S2_Q5_8, S2_Q5_10, S2_Q5_12)), na.rm = T), # summing Leland lecture qs
+         leland_tracks_score_scaled = rowSums(across(c(S3_Q3_1:S3_Q3_5, S3_Q5_1:S3_Q5_8, S2_Q5_10, S2_Q5_12)), na.rm = T)) #summing Leland tracks qs
+```
+
+## T-Test
+
+```{r}
+# paired t-test on Leland questions MINUS peaceful question, but SCALED 
+# maximum score of 15 (1pt/question, 15 questions)
+
+## getting right data frame
+s1_lelandt_scaled <- s1_scaled %>% 
+  select(IndivID, leland_lecture_score_scaled, leland_tracks_score_scaled) %>% 
+  pivot_longer(cols = -IndivID, names_to = "group", values_to = "score")
+
+## summary stats
+s1_lelandt_scaled %>%
+    group_by(group) %>%
+    get_summary_stats(score, type = "mean_sd")
+
+## paired t-test
+t_test(score ~ group, data = s1_lelandt_scaled, paired = TRUE)
+
+## effect size
+s1_lelandt_scaled  %>% cohens_d(score ~ group, paired = TRUE)
+```
+
+## Box Plot
+
+```{r}
+# box plot with lines
+s1_lelandt_scaled %>%
+  mutate(group = factor(group, labels = c("lecture condition", "tracks condition"))) %>% 
+  ggplot( aes(x=group, y=score, fill=group)) +
+    geom_boxplot() +
+    geom_jitter(height = 0, width = 0.00,
+      color="black", size=0.4, alpha=0.5) +
+  geom_line(aes(group = IndivID), color = "grey", alpha = 0.5) +
+  geom_signif(comparisons = list(c("lecture condition", "tracks condition")),
+              annotations="***") +
+    theme_bw() +
+  scale_fill_manual(values = c("lecture condition" = "#00BFC4", "tracks condition" = "#F8766D")) +  # Swap lecture and tracks colors
+    theme(
+      legend.position="none",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("Scaled Leland Scores for Lectures vs Tracks Conditions") +
+    xlab("") +
+  ylab("Scaled Leland Score")
+
+```
+
+## Correlation of Leland Scores and Absorption
+
+```{r}
+#correlation between absorption and lecture condition Leland score
+lecture_abs_r <- cor.test(s1_scaled$absorption_score, s1_scaled$leland_lecture_score_scaled,
+                             method = "pearson")
+lecture_abs_r
+
+#correlation between absorption and tracks condition Leland score
+tracks_abs_r <- cor.test(s1_scaled$absorption_score, s1_scaled$leland_tracks_score_scaled,
+                             method = "pearson")
+tracks_abs_r
+```
+
+## Scatterplot
+
+```{r, fig.width = 8}
+# minus peace SCALED
+
+s1_scaled %>% 
+  select(IndivID, leland_lecture_score_scaled, leland_tracks_score_scaled, absorption_score) %>% 
+  rename(`Lecture Score` = leland_lecture_score_scaled, `Tracks Score` = leland_tracks_score_scaled) %>%
+  pivot_longer(cols = c(`Lecture Score`, `Tracks Score`), names_to = "group", values_to = "score") %>%
+  ggplot(aes(x=absorption_score, y=score)) + 
+  geom_jitter(
+    aes(color = group),
+    height = 0, width = 0, 
+              size = 1, alpha = 1) +
+  #geom_smooth(aes(group = NULL), color = "black", method = "lm") +
+  stat_cor(method = "pearson") +
+  facet_wrap(~ group, ncol = 2) + 
+  scale_color_brewer(palette = "Set2") +
+  labs(title = "Relationship between Scaled Leland Score and Absorption Score",
+       subtitle = "Both Scores Summed",
+       x = "Absorption Score",
+       y = "Leland Score",
+       color = "Group") +
+  theme(legend.position="none") +
+   guides(color = guide_legend(override.aes = list(alpha = 1, size = 2)))
+```
+
+## Mixed Effect Models
+
+```{r}
+# model where score is predicted by group and absorption (and participant)
+
+## data frame 
+s1_m_np <- s1_scaled %>% 
+  select(IndivID, leland_lecture_score_scaled, leland_tracks_score_scaled, absorption_score) %>% 
+  pivot_longer(cols = c(leland_lecture_score_scaled, leland_tracks_score_scaled), names_to = "group", values_to = "score") %>%
+  mutate(IndivID = factor(IndivID))
+
+## mixed effects model without interaction 
+s1.m <- lmer(score ~ scale(absorption_score, scale=F) + group + (1 | IndivID),
+             data = s1_m_np)
+parameters(s1.m)
+
+## mixed effects model with interaction 
+s1.m_int <- lmer(score ~ scale(absorption_score, scale=F) * group + (1 | IndivID),
+             data = s1_m_np)
+parameters(s1.m_int)
+
+```
+
+## Scatterplot with Regression 
+
+```{r, fig.width = 8}
+
+s1_scaled %>% 
+  select(IndivID, leland_lecture_score_scaled, leland_tracks_score_scaled, absorption_score) %>% 
+  rename(`Lecture Score` = leland_lecture_score_scaled, `Tracks Score` = leland_tracks_score_scaled) %>%
+  pivot_longer(cols = c(`Lecture Score`, `Tracks Score`), names_to = "group", values_to = "score") %>%
+  ggplot(aes(x=absorption_score, y=score)) + 
+  geom_jitter(
+    aes(color = group),
+    height = 0, width = 0, 
+              size = 1, alpha = 1) +
+  geom_smooth(aes(color = group), method = "lm") +
+  scale_color_brewer(palette = "Set2") +
+  labs(title = "Relationship between Scaled Leland Score and Absorption Score",
+       subtitle = "Both Scores Summed",
+       x = "Absorption Score",
+       y = "Leland Score",
+       color = "Group") +
+   guides(color = guide_legend(override.aes = list(alpha = 1, size = 2)))
+```
+
+# Study 2
+
+## Cleaning and Organizing
+
+```{r}
+# loading data study 2
+s2_clean <- read_excel("leland_study2.xlsx", sheet = "study2_cleaned")
+```
+
+```{r}
+# making data set for reported Leland score in Study 2
+s2 <- s2_clean %>% 
+  select(IndivID, group, gender, tellegentotal, 
+         Ipod, playcount,
+         pq1, pq1d, pq2, pq2a, pq3, pq3c, pq4, pq4b, pq6, pq6c, pq7, pq7b,
+         pq11, pq21, pq22a, pq22b, pq22c, pq22d) %>% 
+  filter(Ipod < 3) #removing Ipod 3 person, that was a mistake
+
+# renaming, cleaning up
+s2 <- s2 %>%
+  mutate(across(pq1:pq22d, na_if, 99)) %>% #making all 99 values (means "missing" into NAs)
+  rename(condition = Ipod) %>% 
+  mutate(condition = factor(ifelse(condition == 1, "hearing", "seeing")), #making the conditions clearer
+         leland_score = rowSums(across(pq1:pq22d), na.rm = T)) %>% #creating Leland score
+  filter(playcount >= 2) %>% #filtering out people who listened less than 2x
+  filter(leland_score > 0 | if_any(pq1:pq22d, ~ !is.na(.))) # exclude rows with all NAs in Leland columns
+```
+
+```{r}
+# making dataset for Leland score that includes all questions (results reported in Appendix B)
+s2_allq <- s2_clean %>% 
+  select(IndivID, group, gender, tellegentotal, 
+         Ipod, playcount,
+         pq1, pq2, pq3, pq4, pq5, pq6, pq7, pq8, pq9, pq10,
+         pq11, pq12, pq13, pq14, pq15, pq16, pq17, pq18, pq19, 
+         pq20, pq21, pq22a, pq22b, pq22c, pq22d) %>% 
+  filter(Ipod < 3) #removing Ipod 3 person, that was a mistake
+
+# renaming, cleaning up
+s2_allq <- s2_allq %>%
+  mutate(across(pq1:pq22d, na_if, 99)) %>% #making all 99 values (means "missing" into NAs)
+  rename(condition = Ipod) %>% 
+  mutate(condition = factor(ifelse(condition == 1, "hearing", "seeing")), #making the conditions clearer
+         leland_score = rowSums(across(pq1:pq22d), na.rm = T)) %>% #creating Leland score
+  filter(playcount >= 2) %>% #filtering out people who listened less than 2x
+  filter(leland_score > 0 | if_any(pq1:pq22d, ~ !is.na(.))) # exclude rows with all NAs in Leland columns
+```
+
+```{r}
+# making dataset for Leland score that includes all questions and all follow-ups (results reported in Appendix B)
+s2_allq_allf <- s2_clean %>% 
+  select(IndivID, group, gender, tellegentotal, 
+         Ipod, playcount,
+         pq1, pq1b, pq1c, pq1d, 
+         pq2, pq2a, 
+         pq3, pq3b, pq3c, 
+         pq4, pq4a, pq4b, 
+         pq5, pq5a, pq5b, 
+         pq6, pq6b, pq6c, 
+         pq7, pq7a, pq7b, 
+         pq8, pq9, pq10,
+         pq11, pq11a, pq11b, 
+         pq12, pq13, pq14, pq15, pq16, pq17, pq18, pq19, 
+         pq20, pq21, pq22a, pq22b, pq22c, pq22d) %>% 
+  filter(Ipod < 3) #removing Ipod 3 person, that was a mistake
+
+# renaming, cleaning up
+s2_allq_allf <- s2_allq_allf %>%
+  mutate(across(pq1:pq22d, na_if, 99)) %>% #making all 99 values (means "missing" into NAs)
+  rename(condition = Ipod) %>% 
+  mutate(condition = factor(ifelse(condition == 1, "hearing", "seeing")), #making the conditions clearer
+         leland_score_plus = rowSums(across(pq1:pq22d), na.rm = T)) %>% #creating Leland score
+  filter(playcount >= 2) %>% #filtering out people who listened less than 2x
+  filter(leland_score_plus > 0 | if_any(pq1:pq22d, ~ !is.na(.))) # exclude rows with all NAs in Leland columns
+```
+
+*Note* Here we are using the variable "tellegentotal." The summed scores in that column come from pen and paper survey responses, not all of which were broken down and put question-by-question into the data file. This means that we cannot fully reconstruct people's absorption responses on the question level, but that is ok. We trust the pen and paper totals. 
+
+## T-Tests
+
+### Leland score 
+
+```{r}
+# hearing vs. seeing--t-test reported in results of Study 2
+
+## summary stats
+s2 %>%
+    group_by(condition) %>%
+    get_summary_stats(leland_score, type = "mean_sd")
+
+## survey questions 
+t_test(leland_score ~ condition, data = s2)
+
+## absorption
+t_test(tellegentotal ~ condition, data = s2)
+```
+
+
+### Special seeing and hearing Leland subscores
+
+```{r}
+# did seeing people see more leland, hear more leland?
+
+## dataframe
+s2_seehear <- s2_allq_allf %>%
+  select(IndivID, pq3, pq3b, pq3c,
+         pq6, pq6b, pq6c, pq7, pq7a, pq7b,
+         tellegentotal, condition, playcount) %>% 
+  #rename(mentalimage = pq3, stronger = pq3b, eyes = pq3c) %>%
+  #pivot_longer(cols = c(mentalimage, stronger, eyes), names_to = "question", values_to = "response")
+  mutate(see_total = rowSums(across(pq3:pq3c), na.rm = T), 
+         hear_total = rowSums(across(pq6:pq7), na.rm=T)) %>% 
+  pivot_longer(cols = c(see_total, hear_total), names_to = "modality", values_to = "total")
+
+
+# t-tests
+
+##difference in seeing?
+s2_seehear %>% filter(modality == "see_total") %>%
+    group_by(condition) %>%
+    get_summary_stats(total, type = "mean_sd")
+
+t_test(total ~ condition, 
+       data = s2_seehear %>% filter(modality == "see_total"))
+
+##difference in hearing?
+s2_seehear %>% filter(modality == "hear_total") %>%
+    group_by(condition) %>%
+    get_summary_stats(total, type = "mean_sd")
+
+t_test(total ~ condition, 
+       data = s2_seehear %>% filter(modality == "hear_total"))
+```
+
+`r as.numeric(count(s2_seehear %>% filter(condition == "seeing", modality == "see_total", total>0)))` participants in the seeing condition answered yes to at least one seeing specific question, whereas only `r as.numeric(count(s2_seehear %>% filter(condition == "hearing", modality == "see_total", total>0)))` did. 
+
+Conversely, `r as.numeric(count(s2_seehear %>% filter(condition == "hearing", modality == "hear_total", total>0)))` people in the hearing condition answered yes to at least on hearing specific question, whereas only `r as.numeric(count(s2_seehear %>% filter(condition == "seeing", modality == "hear_total", total>0)))` people in the seeing condition did. 
+
+## Correlation of Leland Scores and Absorption
+
+```{r}
+# correlation between absorption and leland scores (conditions combined)
+pearson_r <- cor.test(s2$tellegentotal, s2$leland_score,
+                             method = "pearson")
+pearson_r
+```
+
+## Model 
+
+```{r}
+# model where score is predicted by group and absorption (and participant?)
+
+## data frame (all items, scaled)
+s2_m <- s2 %>% 
+  select(IndivID, condition, leland_score, playcount, tellegentotal) %>% 
+  mutate(IndivID = factor(IndivID))
+
+## linear model
+s2.m <- lm(leland_score ~ scale(tellegentotal, scale=F) + playcount + condition, 
+           data = s2_m)
+
+parameters(s2.m)
+```
+
+```{r}
+# models with expanded scores (as reported in Appendix B)
+
+## data frame (all items, scaled)
+s2_m_allq <- s2_allq %>% 
+  select(IndivID, condition, leland_score, playcount, tellegentotal) %>% 
+  mutate(IndivID = factor(IndivID))
+
+## linear model
+s2.m_allq <- lm(leland_score ~ scale(tellegentotal, scale=F) + playcount + condition, 
+           data = s2_m_allq)
+
+parameters(s2.m_allq)
+
+#---
+
+## data frame (all items, scaled)
+s2_m_allq_allf <- s2_allq_allf %>% 
+  select(IndivID, condition, leland_score_plus, playcount, tellegentotal) %>% 
+  mutate(IndivID = factor(IndivID))
+
+## linear model
+s2.m_allq_allf <- lm(leland_score_plus ~ scale(tellegentotal, scale=F) + playcount + condition, 
+           data = s2_m_allq_allf)
+
+parameters(s2.m_allq_allf)
+
+```
+
+## Plots
+
+```{r}
+#scores plotted against absorption  
+
+## all together
+s2 %>% 
+  select(IndivID, leland_score, condition, tellegentotal) %>% 
+  ggplot(aes(x=tellegentotal, y=leland_score, color = condition)) + 
+  geom_jitter(
+    aes(color = condition),
+    height = 0, width = 0, 
+              size = 1, alpha = 1) +
+  geom_smooth(aes(condition = NULL), color = "black", method = "lm") +
+  scale_color_brewer(palette = "Set2") +
+  labs(title = "Relationship between Leland Score and Absorption Score",
+       subtitle = "Both Scores Summed",
+       x = "Absorption Score",
+       y = "Leland Score",
+       color = "Condition") +
+   guides(color = guide_legend(override.aes = list(alpha = 1, size = 2)))
+
+## faceted
+s2 %>% 
+  select(IndivID, leland_score, condition, tellegentotal) %>% 
+  ggplot(aes(x=tellegentotal, y=leland_score)) + 
+  geom_jitter(
+    aes(color = condition),
+    height = 0, width = 0, 
+              size = 1, alpha = 1) +
+  geom_smooth(aes(condition = NULL), color = "black", method = "lm") +
+  facet_wrap(~ condition, ncol = 2) + 
+  scale_color_brewer(palette = "Set2") +
+  labs(title = "Relationship between Leland Score and Absorption Score",
+       subtitle = "Both Scores Summed",
+       x = "Absorption Score",
+       y = "Leland Score",
+       color = "Condition") +
+   guides(color = guide_legend(override.aes = list(alpha = 1, size = 2)))
+
+```
+
+## Student comments
+
+```{r}
+# These are student responses to the question "Did you have any other unusual experience that you associated with Leland?" 
+## Quotes from these responses were selected and reported in the manuscript 
+
+s2_clean %>% select(comments) %>% rename(`Did you have any other unusual experience that you associated with Leland?` = comments) %>% unique()
+```

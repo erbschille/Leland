@@ -364,6 +364,8 @@ pearson_r
 
 ## Model 
 
+### Model as reported in Study 2 Results 
+
 ```{r}
 # model where score is predicted by group and absorption (and participant?)
 
@@ -378,6 +380,8 @@ s2.m <- lm(leland_score ~ scale(tellegentotal, scale=F) + playcount + condition,
 
 parameters(s2.m)
 ```
+
+### Model results using expanded Leland scores (as reported in Appendix B)
 
 ```{r}
 # models with expanded scores (as reported in Appendix B)
